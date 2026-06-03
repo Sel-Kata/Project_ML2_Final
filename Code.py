@@ -1,0 +1,411 @@
+import pandas as pd
+import numpy as np
+import math
+import matplotlib.pyplot as plt
+import seaborn as sns
+from datetime import datetime
+from sklearn.preprocessing import StandardScaler
+from sklearn.impute import KNNImputer
+from sklearn.cluster import KMeans
+from sklearn.metrics import silhouette_score
+from sklearn.decomposition import PCA
+from minisom import MiniSom
+import umap
+import ast
+from mlxtend.preprocessing import TransactionEncoder
+from mlxtend.frequent_patterns import apriori, association_rules
+
+# 1. Data Preprocessing & Feature Engineering
+def preprocess_data(filepath):
+    df = pd.read_csv(filepath)
+    df['customer_gender'] = df['customer_gender'].astype('category')
+    df['customer_name'] = df['customer_name'].astype('string')
+
+    df_clean = df.copy()
+
+    # Convert birthdate to Age
+    current_year = datetime.now().year
+    df_clean['customer_birthdate'] = pd.to_datetime(df_clean['customer_birthdate'])
+    df_clean['age'] = current_year - df_clean['customer_birthdate'].dt.year
+
+    # Fill age missing values with median
+    df_clean['age'] = df_clean['age'].fillna(df_clean['age'].median())
+
+    # Presence of loyalty card (1 - yes, 0 - no)
+    df_clean['has_loyalty_card'] = df_clean['loyalty_card_number'].notna().astype(int)
+
+    # Drop columns not needed for clustering
+    # customer_id can be kept in index
+    df_clean = df_clean.set_index('customer_id')
+    cols_to_drop = ['customer_name', 'loyalty_card_number', 'customer_birthdate']
+    df_clean = df_clean.drop(columns=cols_to_drop)
+
+    return df_clean
+
+def handle_outliers_and_sanity(df_clean):
+    numeric_cols_for_outliers = [
+        'kids_home', 'teens_home', 'number_complaints', 'typical_hour',
+        'distinct_stores_visited', 'lifetime_spend_groceries', 
+        'lifetime_spend_electronics', 'lifetime_spend_vegetables',
+        'lifetime_spend_nonalcohol_drinks', 'lifetime_spend_alcohol_drinks',
+        'lifetime_spend_meat', 'lifetime_spend_fish', 'lifetime_spend_hygiene',
+        'lifetime_spend_videogames', 'lifetime_spend_petfood',
+        'lifetime_total_distinct_products', 'percentage_of_products_bought_promotion',
+        'age'
+    ]
+    non_negative_cols = [
+        'kids_home', 'teens_home', 'number_complaints', 'distinct_stores_visited',
+        'lifetime_spend_groceries', 'lifetime_spend_electronics', 
+        'lifetime_spend_vegetables', 'lifetime_spend_nonalcohol_drinks', 
+        'lifetime_spend_alcohol_drinks', 'lifetime_spend_meat', 
+        'lifetime_spend_fish', 'lifetime_spend_hygiene', 
+        'lifetime_spend_videogames', 'lifetime_spend_petfood',
+        'lifetime_total_distinct_products', 
+        'percentage_of_products_bought_promotion', 'typical_hour'
+    ]
+
+    # Sanity Checks
+    for col in non_negative_cols:
+        # Clip values less than 0 to 0
+        df_clean[col] = df_clean[col].clip(lower=0)
+        
+    # Percentage of promotional purchases cannot exceed 100% 
+    df_clean['percentage_of_products_bought_promotion'] = df_clean['percentage_of_products_bought_promotion'].clip(upper=100)
+    df_clean['typical_hour'] = df_clean['typical_hour'].clip(upper=23)
+    df_clean['age'] = df_clean['age'].clip(lower=14, upper=100)
+
+    # Remove outliers
+    for col in numeric_cols_for_outliers:
+        upper_limit = df_clean[col].quantile(0.99)
+        df_clean[col] = df_clean[col].clip(upper=upper_limit)
+
+    df_clean = pd.get_dummies(df_clean, columns=['customer_gender'], drop_first=True, dtype=int)
+    return df_clean
+
+def scale_and_impute_data(df_clean):
+    # Scales data and imputes missing values using KNN.
+    features = df_clean.columns
+    customer_indexes = df_clean.index
+
+    scaler = StandardScaler()
+    df_scaled_matrix = scaler.fit_transform(df_clean)
+
+    # Impute missing values
+    imputer = KNNImputer(n_neighbors=5)
+    df_imputed_matrix = imputer.fit_transform(df_scaled_matrix)
+    
+    df_final = pd.DataFrame(df_imputed_matrix, columns=features, index=customer_indexes)
+
+    print("Number of missing values after processing:", df_final.isnull().sum().sum())
+    print("Dimensions of the final dataset:", df_final.shape)
+    
+    return df_final
+
+# 2. Exploratory Data Analysis (EDA)
+def plot_distributions(df_clean):
+    sns.set_theme(style="whitegrid")
+    
+    numeric_cols = df_clean.select_dtypes(include=['float64', 'int64', 'int32']).columns
+
+    n_cols = 3
+    n_rows = math.ceil(len(numeric_cols) / n_cols)
+    fig, axes = plt.subplots(n_rows, n_cols, figsize=(18, 4 * n_rows))
+    axes = axes.flatten()
+
+    for i, col in enumerate(numeric_cols):
+        sns.histplot(data=df_clean, x=col, kde=True, ax=axes[i], bins=30, color='steelblue')
+        axes[i].set_title(f'Dist: {col}', fontsize=12, fontweight='bold')
+        axes[i].set_xlabel('')
+        axes[i].set_ylabel('Count')
+
+    for j in range(len(numeric_cols), len(axes)):
+        fig.delaxes(axes[j])
+
+    plt.tight_layout()
+    plt.show()
+
+def plot_correlation_matrix(df_clean, threshold=0.85):
+    corr_matrix = df_clean.corr()
+
+    plt.figure(figsize=(16, 12))
+    sns.heatmap(corr_matrix, annot=False, cmap='coolwarm', center=0, vmin=-1, vmax=1, square=True)
+    plt.title('Correlation Matrix', fontsize=16, fontweight='bold')
+    plt.tight_layout()
+    plt.show()
+
+    # If absolute correlation > threshold, consider features as duplicates
+    upper_triangle = corr_matrix.where(np.triu(np.ones(corr_matrix.shape), k=1).astype(bool))
+    cols_to_drop_corr = [column for column in upper_triangle.columns if any(upper_triangle[column].abs() > threshold)]
+
+    print(f"Correlation Threshold: {threshold}")
+    print(f"Columns to drop (highly correlated): {cols_to_drop_corr}")
+
+# 3. Clustering Models
+def evaluate_optimal_clusters(df_final):
+    k_range = range(2, 15)
+    inertia = []
+    silhouette_scores = []
+    
+    for k in k_range:
+        kmeans = KMeans(n_clusters=k, random_state=42, n_init=10)
+        kmeans.fit(df_final)
+        inertia.append(kmeans.inertia_)
+        
+        # Calculate Silhouette Score (-1, 1 - higher is better)
+        labels = kmeans.labels_
+        score = silhouette_score(df_final, labels)
+        silhouette_scores.append(score)
+
+    sns.set_theme(style="whitegrid")
+    fig, axes = plt.subplots(1, 2, figsize=(16, 5))
+
+    # Elbow Method
+    axes[0].plot(k_range, inertia, marker='o', color='steelblue', linewidth=2)
+    axes[0].set_title('Elbow Method', fontsize=14, fontweight='bold')
+    axes[0].set_xlabel('k', fontsize=12)
+    axes[0].set_ylabel('WCSS', fontsize=12)
+    axes[0].set_xticks(k_range)
+
+    # Silhouette Score
+    axes[1].plot(k_range, silhouette_scores, marker='s', color='seagreen', linewidth=2)
+    axes[1].set_title('Silhouette Score', fontsize=14, fontweight='bold')
+    axes[1].set_xlabel('k', fontsize=12)
+    axes[1].set_ylabel('Silhouette Score', fontsize=12)
+    axes[1].set_xticks(k_range)
+
+    plt.tight_layout()
+    plt.show()
+
+def run_kmeans(df_final, df_clean, n_clusters):
+    kmeans_final = KMeans(n_clusters=n_clusters, random_state=42, n_init=10)
+    cluster_labels = kmeans_final.fit_predict(df_final)
+
+    df_analysis = df_clean.copy()
+    df_analysis['cluster'] = cluster_labels
+
+    print(f"Customer distribution across K-Means clusters (k={n_clusters}):")
+    print(df_analysis['cluster'].value_counts())
+    print("-" * 50)
+
+    cols_to_analyze = [
+        'age', 'kids_home', 'teens_home', 'number_complaints', 'typical_hour',
+        'distinct_stores_visited', 'lifetime_spend_groceries', 
+        'lifetime_spend_electronics', 'lifetime_spend_vegetables',
+        'lifetime_spend_nonalcohol_drinks', 'lifetime_spend_alcohol_drinks',
+        'lifetime_spend_meat', 'lifetime_spend_fish', 'lifetime_spend_hygiene',
+        'lifetime_spend_videogames', 'lifetime_spend_petfood',
+        'lifetime_total_distinct_products', 'percentage_of_products_bought_promotion',
+        'has_loyalty_card', 'cluster'
+    ]
+
+    # Safely select only columns that actually exist in df_analysis
+    valid_cols = [col for col in cols_to_analyze if col in df_analysis.columns]
+
+    cluster_profiles = df_analysis[valid_cols].groupby('cluster').mean().T
+    cluster_profiles = cluster_profiles.round(2)
+
+    print("\n--- K-Means Cluster Profiles ---")
+    print(cluster_profiles)
+    
+    return cluster_labels, df_analysis
+
+def run_som(df_final, df_clean, grid_x, grid_y=1):
+    data_matrix = df_final.values
+    n_samples, n_features = data_matrix.shape
+
+    # SOM 
+    som = MiniSom(x=grid_x, y=grid_y, input_len=n_features, sigma=1.0, learning_rate=0.5, random_seed=42)
+    som.random_weights_init(data_matrix)
+    som.train_random(data_matrix, num_iteration=10000)
+    
+    # Best Matching Unit 
+    som_labels = np.array([som.winner(x)[0] for x in data_matrix])
+    som_silhouette = silhouette_score(data_matrix, som_labels)
+
+    print(f"\nSOM Silhouette Score ({grid_x*grid_y} clusters): {som_silhouette:.4f}")
+    print("\nCustomer distribution (SOM):")
+    print(pd.Series(som_labels).value_counts().sort_index().values)
+
+    df_som_analysis = df_clean.copy()
+    df_som_analysis['cluster_som'] = som_labels
+
+    cols_to_analyze_som = [
+        'age', 'kids_home', 'teens_home', 'number_complaints', 'typical_hour',
+        'distinct_stores_visited', 'lifetime_spend_groceries', 
+        'lifetime_spend_electronics', 'lifetime_spend_vegetables',
+        'lifetime_spend_nonalcohol_drinks', 'lifetime_spend_alcohol_drinks',
+        'lifetime_spend_meat', 'lifetime_spend_fish', 'lifetime_spend_hygiene',
+        'lifetime_spend_videogames', 'lifetime_spend_petfood',
+        'lifetime_total_distinct_products', 'percentage_of_products_bought_promotion',
+        'has_loyalty_card', 'cluster_som'
+    ]
+
+    valid_cols_som = [col for col in cols_to_analyze_som if col in df_som_analysis.columns]
+    som_profiles = df_som_analysis[valid_cols_som].groupby('cluster_som').mean().T
+    som_profiles = som_profiles.round(2)
+
+    print("\n--- SOM Cluster Profiles ---")
+    print(som_profiles)
+
+    return som_labels, df_som_analysis
+
+# 4. Dimensionality Reduction and Visualizations
+def plot_pca_clusters(df_final, som_labels):
+    fig, axes = plt.subplots(1, 2, figsize=(18, 7))
+
+    # Distribution of people across clusters
+    som_counts = pd.Series(som_labels).value_counts().sort_index()
+    sns.barplot(x=som_counts.index, y=som_counts.values, ax=axes[0], palette="coolwarm")
+    axes[0].set_title('Customer Distribution across SOM Clusters', fontsize=14, fontweight='bold')
+    axes[0].set_xlabel('SOM Cluster', fontsize=12)
+    axes[0].set_ylabel('Number of Customers', fontsize=12)
+
+    for i, v in enumerate(som_counts.values):
+        axes[0].text(i, v + 100, str(v), ha='center', fontweight='bold')
+
+    # PCA
+    pca = PCA(n_components=2, random_state=42)
+    data_pca = pca.fit_transform(df_final)
+
+    df_viz = pd.DataFrame(data_pca, columns=['PCA1', 'PCA2'])
+    df_viz['Cluster_SOM'] = som_labels
+
+    sns.scatterplot(
+        data=df_viz, x='PCA1', y='PCA2', 
+        hue='Cluster_SOM', palette='coolwarm', alpha=0.6, s=30, ax=axes[1]
+    )
+
+    axes[1].set_title('SOM Clusters 2D Projection (PCA)', fontsize=14, fontweight='bold')
+    axes[1].set_xlabel(f'Principal Component 1 ({pca.explained_variance_ratio_[0]*100:.1f}%)', fontsize=12)
+    axes[1].set_ylabel(f'Principal Component 2 ({pca.explained_variance_ratio_[1]*100:.1f}%)', fontsize=12)
+    axes[1].legend(title='SOM Cluster', loc='best')
+
+    plt.tight_layout()
+    plt.show()
+
+def plot_umap_clusters(df_final, som_labels, n_neighbors, min_dist, alpha, s, title):
+    reducer = umap.UMAP(n_neighbors=n_neighbors, min_dist=min_dist, random_state=42)
+    data_umap = reducer.fit_transform(df_final)
+
+    df_viz_umap = pd.DataFrame(data_umap, columns=['UMAP1', 'UMAP2'])
+    df_viz_umap['Cluster_SOM'] = som_labels
+
+    plt.figure(figsize=(12, 8))
+    sns.scatterplot(
+        data=df_viz_umap, x='UMAP1', y='UMAP2', 
+        hue='Cluster_SOM', palette='coolwarm', alpha=alpha, s=s  
+    )
+    plt.title(title, fontsize=16, fontweight='bold')
+    plt.xlabel('UMAP Component 1', fontsize=12)
+    plt.ylabel('UMAP Component 2', fontsize=12)
+    plt.legend(title='SOM Cluster', loc='best')
+    plt.tight_layout()
+    plt.show()
+
+# 5. Recommendation System
+def generate_recommendations(basket_filepath, df_som_analysis, n_clusters):
+    print("\n--- Starting Recommendation System ---")
+    df_basket = pd.read_csv(basket_filepath)
+
+    if isinstance(df_basket['list_of_goods'].iloc[0], str):
+        df_basket['list_of_goods'] = df_basket['list_of_goods'].apply(ast.literal_eval)
+
+    df_merged = df_basket[['customer_id', 'invoice_id', 'list_of_goods']].merge(
+        df_som_analysis[['cluster_som']], 
+        on='customer_id', 
+        how='inner'
+    )
+
+    def get_recommendations_for_cluster(cluster_id, min_sup=0.02, min_conf=0.2):
+        print(f"\n--- Analyzing Cluster {cluster_id} ---")
+        
+        cluster_baskets = df_merged[df_merged['cluster_som'] == cluster_id]['list_of_goods']
+        
+        if len(cluster_baskets) == 0:
+            print("No data for this cluster.")
+            return None
+        
+        te = TransactionEncoder()
+        te_ary = te.fit(cluster_baskets).transform(cluster_baskets)
+        df_transactions = pd.DataFrame(te_ary, columns=te.columns_)
+        
+        frequent_itemsets = apriori(df_transactions, min_support=min_sup, use_colnames=True)
+        
+        if frequent_itemsets.empty:
+            print("No frequent itemsets found.")
+            return None
+
+        rules = association_rules(frequent_itemsets, metric="confidence", min_threshold=min_conf)
+        rules = rules[rules['lift'] > 1.2]
+        rules = rules.sort_values(by=['lift', 'confidence'], ascending=[False, False])
+
+        rules['antecedents'] = rules['antecedents'].apply(lambda x: ', '.join(list(x)))
+        rules['consequents'] = rules['consequents'].apply(lambda x: ', '.join(list(x)))
+        
+        print(f"Rules found: {len(rules)}")
+        return rules[['antecedents', 'consequents', 'support', 'confidence', 'lift']].head(10)
+
+    cluster_rules = {}
+    
+    # Process dynamically based on n_clusters
+    for i in range(n_clusters):
+        # min_sup=0.02: the itemset must appear in at least 2% of the transactions for this cluster
+        # min_conf=0.2: if item A is bought, item B is bought in at least 20% of the cases
+        rules = get_recommendations_for_cluster(cluster_id=i, min_sup=0.02, min_conf=0.2)
+        
+        if rules is not None:
+            cluster_rules[i] = rules
+            print(rules)
+
+
+
+info_file = "customer_info.csv"
+basket_file = "customer_basket.csv"
+
+print("1. Loading and preprocessing data")
+df_clean_initial = preprocess_data(info_file)
+df_clean = handle_outliers_and_sanity(df_clean_initial)
+df_final = scale_and_impute_data(df_clean)
+
+print("\n2. Generating EDA plots")
+plot_distributions(df_clean)
+plot_correlation_matrix(df_clean)
+
+print("\n3. Evaluating optimal number of clusters")
+evaluate_optimal_clusters(df_final)
+NUM_CLUSTERS = 5
+
+print(f"\n4. Running K-Means clustering with {NUM_CLUSTERS} clusters")
+kmeans_labels, df_kmeans_analysis = run_kmeans(df_final, df_clean, n_clusters=NUM_CLUSTERS)
+
+print(f"\n5. Running SOM clustering with {NUM_CLUSTERS} clusters")
+# ( 1D SOM)
+som_labels, df_som_analysis = run_som(df_final, df_clean, grid_x=NUM_CLUSTERS, grid_y=1)
+
+print("\n6. Generating Dimensionality Reduction visualisations")
+plot_pca_clusters(df_final, som_labels)
+        
+# UMAP - Local View (n_neighbors=15, min_dist=0.1, alpha=0.6, s=15)
+plot_umap_clusters(
+            df_final=df_final, 
+            som_labels=som_labels, 
+            n_neighbors=15, 
+            min_dist=0.1, 
+            alpha=0.6, 
+            s=15, 
+            title='SOM Clusters 2D Projection (UMAP - Local View)'
+        )
+        
+# UMAP - Global View (n_neighbors=50, min_dist=0.05, alpha=0.4, s=5)
+plot_umap_clusters(
+            df_final=df_final, 
+            som_labels=som_labels, 
+            n_neighbors=50, 
+            min_dist=0.05, 
+            alpha=0.4, 
+            s=5, 
+            title='SOM Clusters 2D Projection (UMAP - Global View)'
+        )
+
+print(f"\n7. Building Recommendation System based on {NUM_CLUSTERS} SOM clusters")
+generate_recommendations(basket_file, df_som_analysis, n_clusters=NUM_CLUSTERS)
