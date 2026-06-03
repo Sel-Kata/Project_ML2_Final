@@ -14,6 +14,7 @@ import umap
 import ast
 from mlxtend.preprocessing import TransactionEncoder
 from mlxtend.frequent_patterns import apriori, association_rules
+from sklearn.metrics import silhouette_score, davies_bouldin_score, calinski_harabasz_score
 
 # 1. Data Preprocessing & Feature Engineering
 def preprocess_data(filepath):
@@ -302,6 +303,53 @@ def plot_umap_clusters(df_final, som_labels, n_neighbors, min_dist, alpha, s, ti
     plt.tight_layout()
     plt.show()
 
+def compare_clustering_models(df_final, labels_dict):
+    """
+    Compares different clustering models using internal evaluation metrics.
+    
+    Parameters:
+    df_final: The scaled and imputed dataframe.
+    labels_dict: Dictionary with model names as keys and their cluster labels as values.
+                 Example: {'K-Means': kmeans_labels, 'SOM': som_labels}
+    """
+    print("\n Clustering Models Comparison ")
+    
+    results = []
+    
+    for model_name, labels in labels_dict.items():
+        # Calculate metrics
+        sil_score = silhouette_score(df_final, labels)
+        db_score = davies_bouldin_score(df_final, labels)
+        ch_score = calinski_harabasz_score(df_final, labels)
+        
+        results.append({
+            'Model': model_name,
+            'Silhouette (Higher is better)': sil_score,
+            'Davies-Bouldin (Lower is better)': db_score,
+            'Calinski-Harabasz (Higher is better)': ch_score
+        })
+        
+    results_df = pd.DataFrame(results)
+    print(results_df.round(4).to_string(index=False))
+    
+    #Visualizing the comparison
+    sns.set_theme(style="whitegrid")
+    fig, axes = plt.subplots(1, 3, figsize=(18, 5))
+    
+    #Silhouette Plot
+    sns.barplot(data=results_df, x='Model', y='Silhouette (Higher is better)', ax=axes[0], palette='viridis')
+    axes[0].set_title('Silhouette Score \n(Higher = Better Separation)', fontsize=14, fontweight='bold')
+    axes[0].set_ylabel('Score')
+    
+    
+    #Calinski-Harabasz Plot
+    sns.barplot(data=results_df, x='Model', y='Calinski-Harabasz (Higher is better)', ax=axes[2], palette='coolwarm')
+    axes[2].set_title('Calinski-Harabasz Index \n(Higher = Better Density)', fontsize=14, fontweight='bold')
+    axes[2].set_ylabel('Score')
+    
+    plt.tight_layout()
+    plt.show()
+
 # 5. Recommendation System
 def generate_recommendations(basket_filepath, df_som_analysis, n_clusters):
     print("\n--- Starting Recommendation System ---")
@@ -362,27 +410,27 @@ def generate_recommendations(basket_filepath, df_som_analysis, n_clusters):
 info_file = "customer_info.csv"
 basket_file = "customer_basket.csv"
 
-print("1. Loading and preprocessing data")
+print(" Loading and preprocessing data")
 df_clean_initial = preprocess_data(info_file)
 df_clean = handle_outliers_and_sanity(df_clean_initial)
 df_final = scale_and_impute_data(df_clean)
 
-print("\n2. Generating EDA plots")
+print("\n Generating EDA plots")
 plot_distributions(df_clean)
 plot_correlation_matrix(df_clean)
 
-print("\n3. Evaluating optimal number of clusters")
+print("\n Evaluating optimal number of clusters")
 evaluate_optimal_clusters(df_final)
 NUM_CLUSTERS = 5
 
-print(f"\n4. Running K-Means clustering with {NUM_CLUSTERS} clusters")
+print(f"\n Running K-Means clustering with {NUM_CLUSTERS} clusters")
 kmeans_labels, df_kmeans_analysis = run_kmeans(df_final, df_clean, n_clusters=NUM_CLUSTERS)
 
-print(f"\n5. Running SOM clustering with {NUM_CLUSTERS} clusters")
-# ( 1D SOM)
+print(f"\n Running SOM clustering with {NUM_CLUSTERS} clusters")
+# (1D SOM)
 som_labels, df_som_analysis = run_som(df_final, df_clean, grid_x=NUM_CLUSTERS, grid_y=1)
 
-print("\n6. Generating Dimensionality Reduction visualisations")
+print("\n Generating Dimensionality Reduction visualisations")
 plot_pca_clusters(df_final, som_labels)
         
 # UMAP - Local View (n_neighbors=15, min_dist=0.1, alpha=0.6, s=15)
@@ -407,5 +455,16 @@ plot_umap_clusters(
             title='SOM Clusters 2D Projection (UMAP - Global View)'
         )
 
-print(f"\n7. Building Recommendation System based on {NUM_CLUSTERS} SOM clusters")
+
+print("\nComparing Clustering Models")
+models_to_compare = {
+        'K-Means': kmeans_labels,
+        'SOM': som_labels
+    }
+compare_clustering_models(df_final, models_to_compare)
+
+print("\n Generating Dimensionality Reduction visualisations")
+plot_pca_clusters(df_final, som_labels)
+
+print(f"\n Building Recommendation System based on {NUM_CLUSTERS} SOM clusters")
 generate_recommendations(basket_file, df_som_analysis, n_clusters=NUM_CLUSTERS)
