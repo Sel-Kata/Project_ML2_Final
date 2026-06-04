@@ -332,15 +332,14 @@ def compare_clustering_models(df_final, labels_dict):
     
     #Visualizing the comparison
     sns.set_theme(style="whitegrid")
-    # Оставляем 2 графика, немного уменьшив ширину полотна для красоты
     fig, axes = plt.subplots(1, 2, figsize=(12, 5))
     
-    #Silhouette Plot (Индекс 0)
+    #Silhouette Plot 
     sns.barplot(data=results_df, x='Model', y='Silhouette (Higher is better)', ax=axes[0], palette='viridis')
     axes[0].set_title('Silhouette Score \n(Higher = Better Separation)', fontsize=14, fontweight='bold')
     axes[0].set_ylabel('Score')
     
-    #Calinski-Harabasz Plot (ИЗМЕНЕНО: Индекс 1 вместо 2)
+    #Calinski-Harabasz Plot
     sns.barplot(data=results_df, x='Model', y='Calinski-Harabasz (Higher is better)', ax=axes[1], palette='coolwarm')
     axes[1].set_title('Calinski-Harabasz Index \n(Higher = Better Density)', fontsize=14, fontweight='bold')
     axes[1].set_ylabel('Score')
