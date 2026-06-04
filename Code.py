@@ -319,13 +319,11 @@ def compare_clustering_models(df_final, labels_dict):
     for model_name, labels in labels_dict.items():
         # Calculate metrics
         sil_score = silhouette_score(df_final, labels)
-        db_score = davies_bouldin_score(df_final, labels)
         ch_score = calinski_harabasz_score(df_final, labels)
         
         results.append({
             'Model': model_name,
             'Silhouette (Higher is better)': sil_score,
-            'Davies-Bouldin (Lower is better)': db_score,
             'Calinski-Harabasz (Higher is better)': ch_score
         })
         
@@ -334,18 +332,18 @@ def compare_clustering_models(df_final, labels_dict):
     
     #Visualizing the comparison
     sns.set_theme(style="whitegrid")
-    fig, axes = plt.subplots(1, 3, figsize=(18, 5))
+    # Оставляем 2 графика, немного уменьшив ширину полотна для красоты
+    fig, axes = plt.subplots(1, 2, figsize=(12, 5))
     
-    #Silhouette Plot
+    #Silhouette Plot (Индекс 0)
     sns.barplot(data=results_df, x='Model', y='Silhouette (Higher is better)', ax=axes[0], palette='viridis')
     axes[0].set_title('Silhouette Score \n(Higher = Better Separation)', fontsize=14, fontweight='bold')
     axes[0].set_ylabel('Score')
     
-    
-    #Calinski-Harabasz Plot
-    sns.barplot(data=results_df, x='Model', y='Calinski-Harabasz (Higher is better)', ax=axes[2], palette='coolwarm')
-    axes[2].set_title('Calinski-Harabasz Index \n(Higher = Better Density)', fontsize=14, fontweight='bold')
-    axes[2].set_ylabel('Score')
+    #Calinski-Harabasz Plot (ИЗМЕНЕНО: Индекс 1 вместо 2)
+    sns.barplot(data=results_df, x='Model', y='Calinski-Harabasz (Higher is better)', ax=axes[1], palette='coolwarm')
+    axes[1].set_title('Calinski-Harabasz Index \n(Higher = Better Density)', fontsize=14, fontweight='bold')
+    axes[1].set_ylabel('Score')
     
     plt.tight_layout()
     plt.show()
@@ -405,6 +403,204 @@ def generate_recommendations(basket_filepath, df_som_analysis, n_clusters):
             cluster_rules[i] = rules
             print(rules)
 
+def generate_business_report(df_analysis, cluster_col='cluster_som'):
+  
+    print("\n" + "="*60)
+    print(" CUSTOMER BEHAVIOR & MARKETING STRATEGIES")
+    print("="*60)
+    
+    key_metrics = ['age', 'kids_home', 'typical_hour', 'number_complaints', 
+                   'has_loyalty_card', 'distinct_stores_visited']
+    
+    valid_metrics = [col for col in key_metrics if col in df_analysis.columns]
+    
+    # mean by clasters
+    cluster_summary = df_analysis.groupby(cluster_col)[valid_metrics].mean()
+    
+    cluster_names = {
+        0: "Breakfast Lovers",
+        1: "Youth / On-the-go",
+        2: "Families with pets",
+        3: "Healthy & Vegans ",
+        4: "Tech & Athletes "
+    }
+    
+    for cluster_id in sorted(df_analysis[cluster_col].unique()):
+        print(f"\n{'='*40}")
+        print(f" CLUSTER {cluster_id} - {cluster_names.get(cluster_id, 'Unknown')}")
+        print(f"{'='*40}")
+        
+        row = cluster_summary.loc[cluster_id]
+        
+        # Customer Behavior
+        print("\n[ Customer Behavior Analysis ]")
+        print(f" • Average Age: {row['age']:.1f} years")
+        print(f" • Kids at home: {row['kids_home']:.2f} (avg per customer)")
+        print(f" • Typical Shopping Hour: {int(row['typical_hour'])}:00")
+        print(f" • Loyalty Card Usage: {(row['has_loyalty_card'] * 100):.1f}%")
+        print(f" • Average Complaints: {row['number_complaints']:.2f}")
+        print(f" • Distinct Stores Visited: {row['distinct_stores_visited']:.1f}")
+        
+        # Targeted Marketing Strategies 
+        print("\n[  Targeted Marketing Strategy ]")
+        
+        if cluster_id == 0:
+            print(" • Cross-sell Combo: 'Buy eggs and butter — get 20% off fresh bread'.")
+            print(f" • Timing Strategy: Send breakfast recipes and promo codes via email at {int(row['typical_hour'])-1}:00 (just before their typical shopping time).")
+            
+        elif cluster_id == 1:
+            print(" • Trigger Promo: Offer a free energy drink when adding any headphones to the cart online.")
+            print(f" • Push Notifications: Send mobile app alerts for quick snacks at {int(row['typical_hour'])}:00.")
+            print(" • Note: This cluster has very few strict association rules, indicating chaotic/spontaneous purchase behavior.")
+            
+        elif cluster_id == 2:
+            print(" • Bundle Offer: 'Family Basket' promo. Buy baby food + dog food, get a large pack of napkins with a 30% discount.")
+            if row['number_complaints'] > df_analysis['number_complaints'].mean():
+                print(" • Retention Strategy: This cluster has higher complaints. Send an apology promo code for their favorite bundle to increase loyalty.")
+            else:
+                print(" • Subscription Model: Send reminders to re-stock on diapers and dog food every 2-3 weeks.")
+                
+        elif cluster_id == 3:
+            print(" • Targeted Discount: 20% off avocados when buying fresh asparagus and spinach.")
+            if row['has_loyalty_card'] < 0.5:
+                print(" • Acquisition Strategy: Loyalty card penetration is low. Offer the avocado discount ONLY upon app registration/loyalty card activation.")
+            print(" • Communication: Send newsletters about fresh farm vegetable arrivals (do not push meat products).")
+            
+        elif cluster_id == 4:
+            print(" • Sports Bundle: 'Post-Workout' promo code (Shampoo + Deodorant + Protein bar).")
+            print(" • Upsell Strategy: When a high-ticket item (e.g., iPhone 10) is added to the cart, automatically offer a coupon for AirPods/Bluetooth headphones.")
+
+    print("\n" + "="*60)
+    print(" Next Steps / Evaluation:")
+    print(" To measure the success of these strategies, we will implement A/B testing.")
+    print(" The control group will not receive these targeted promos, while the test group will.")
+    print(" Key metrics to track: Conversion Rate, Average Order Value (AOV), and Loyalty Card Sign-ups.")
+    print("="*60)
+
+def investigate_cluster_1_paradox(df_analysis):
+    """Investigates the demographic paradox of Cluster 1 (Tech/Youth items vs High Age)."""
+    print("\n" + "="*60)
+    print(" INVESTIGATING THE PARADOX: CLUSTER 1 (Age 60+ buying AirPods)")
+    print("="*60)
+    
+    cluster_1_data = df_analysis[df_analysis['cluster_som'] == 1]
+    
+    # 1. Check for teens/kids in the household
+    print("\n1. Hypothesis: Are they buying gifts for teens/grandchildren?")
+    teens_dist = cluster_1_data['teens_home'].value_counts(normalize=True) * 100
+    print("Percentage of customers with teens at home:")
+    for teens_count, percent in teens_dist.items():
+        print(f" {int(teens_count)} teen(s): {percent:.1f}% of cluster")
+        
+    kids_dist = cluster_1_data['kids_home'].value_counts(normalize=True) * 100
+    print("\nPercentage of customers with kids at home:")
+    for kids_count, percent in kids_dist.items():
+        print(f" {int(kids_count)} kid(s): {percent:.1f}% of cluster")
+
+    # 2. Check lifetime spend patterns
+    print("\n2. Hypothesis: One-time gift vs Regular consumption?")
+    avg_electronics = cluster_1_data['lifetime_spend_electronics'].mean()
+    avg_drinks = cluster_1_data['lifetime_spend_nonalcohol_drinks'].mean()
+    print(f"Average lifetime spend on electronics: {avg_electronics:.1f}")
+    print(f"Average lifetime spend on non-alcohol drinks: {avg_drinks:.1f}")
+    
+    # 3. Plotting distributions
+    sns.set_theme(style="whitegrid")
+    fig, axes = plt.subplots(1, 2, figsize=(15, 5))
+    
+    # Age Distribution
+    sns.histplot(cluster_1_data['age'], bins=20, kde=True, ax=axes[0], color='purple')
+    axes[0].set_title('Age Distribution in Cluster 1', fontsize=14, fontweight='bold')
+    axes[0].set_xlabel('Age')
+    axes[0].set_ylabel('Number of Customers')
+    
+    # Electronics Spend Distribution
+    sns.histplot(cluster_1_data['lifetime_spend_electronics'], bins=20, kde=True, ax=axes[1], color='orange')
+    axes[1].set_title('Lifetime Spend on Electronics Distribution', fontsize=14, fontweight='bold')
+    axes[1].set_xlabel('Lifetime Spend')
+    axes[1].set_ylabel('Number of Customers')
+    
+    plt.tight_layout()
+    plt.show()
+
+def analyze_profit_vs_stability(df_analysis):
+    """
+    Evaluates clusters based on Profitability (Total Spend) 
+    and Stability (Loyalty, low complaints, low promo dependency).
+    Draws a Customer Portfolio Matrix.
+    """
+    print("\n" + "="*60)
+    print(" ADVANCED ANALYSIS: PROFITABILITY vs STABILITY MATRIX")
+    print("="*60)
+    
+    # Calculate Total Lifetime Spend
+    spend_cols = [c for c in df_analysis.columns if 'lifetime_spend_' in c]
+    df_analysis['total_lifetime_spend'] = df_analysis[spend_cols].sum(axis=1)
+    
+    summary = df_analysis.groupby('cluster_som').agg(
+        avg_spend=('total_lifetime_spend', 'mean'),
+        loyalty_pct=('has_loyalty_card', lambda x: x.mean() * 100),
+        promo_pct=('percentage_of_products_bought_promotion', 'mean'),
+        avg_complaints=('number_complaints', 'mean')
+    ).round(2)
+    
+    # Calculate a synthetic "Stability Score" (0 to 100 scale)
+    summary['stability_score'] = (
+        (summary['loyalty_pct'] * 1.0) - 
+        (summary['promo_pct'] * 0.5) - 
+        (summary['avg_complaints'] * 10)
+    )
+    # Normalize score to be roughly out of 100 for easier reading
+    summary['stability_score'] = summary['stability_score'].apply(lambda x: max(0, min(100, x + 20))).round(1)
+    
+    print("\n[ Cluster Performance Table ]")
+    print(summary[['avg_spend', 'stability_score', 'loyalty_pct', 'promo_pct', 'avg_complaints']].to_string())
+    
+    sns.set_theme(style="whitegrid")
+    plt.figure(figsize=(10, 8))
+    
+    # Scatter plot
+    scatter = sns.scatterplot(
+        data=summary, 
+        x='avg_spend', 
+        y='stability_score', 
+        hue=summary.index, 
+        palette='tab10', 
+        s=800, # Bubble size
+        alpha=0.8,
+        legend=False
+    )
+    
+    # Add labels to the bubbles
+    for i in summary.index:
+        plt.text(summary.loc[i, 'avg_spend'], summary.loc[i, 'stability_score'], 
+                 f"C{i}", horizontalalignment='center', verticalalignment='center', 
+                 fontsize=12, color='white', fontweight='bold')
+    
+    # Calculate medians to draw quadrant lines
+    median_spend = summary['avg_spend'].median()
+    median_stability = summary['stability_score'].median()
+    
+    plt.axvline(median_spend, color='gray', linestyle='--', alpha=0.7)
+    plt.axhline(median_stability, color='gray', linestyle='--', alpha=0.7)
+    
+    plt.text(median_spend * 1.05, median_stability * 1.1, "STAR CUSTOMERS\n(High Profit, High Stability)", 
+             color='green', fontweight='bold', alpha=0.6)
+    plt.text(median_spend * 0.5, median_stability * 1.1, "LOYAL BUT LOW SPEND\n(Cash Cows)", 
+             color='blue', fontweight='bold', alpha=0.6)
+    plt.text(median_spend * 1.05, median_stability * 0.8, "AT-RISK WHALES\n(High Profit, Low Stability)", 
+             color='red', fontweight='bold', alpha=0.6)
+    plt.text(median_spend * 0.5, median_stability * 0.8, "LOW VALUE\n(Low Profit, Low Stability)", 
+             color='orange', fontweight='bold', alpha=0.6)
+    
+    plt.title('Customer Portfolio Matrix: Profitability vs. Stability', fontsize=16, fontweight='bold')
+    plt.xlabel('Profitability (Average Total Lifetime Spend, $)', fontsize=12)
+    plt.ylabel('Stability Score (Loyalty + Low Complaints)', fontsize=12)
+    plt.grid(True, alpha=0.3)
+    plt.tight_layout()
+    plt.show()
+
+
 
 
 info_file = "customer_info.csv"
@@ -414,13 +610,13 @@ print(" Loading and preprocessing data")
 df_clean_initial = preprocess_data(info_file)
 df_clean = handle_outliers_and_sanity(df_clean_initial)
 df_final = scale_and_impute_data(df_clean)
-
+"""
 print("\n Generating EDA plots")
 plot_distributions(df_clean)
 plot_correlation_matrix(df_clean)
 
 print("\n Evaluating optimal number of clusters")
-evaluate_optimal_clusters(df_final)
+evaluate_optimal_clusters(df_final)"""
 NUM_CLUSTERS = 5
 
 print(f"\n Running K-Means clustering with {NUM_CLUSTERS} clusters")
@@ -429,7 +625,7 @@ kmeans_labels, df_kmeans_analysis = run_kmeans(df_final, df_clean, n_clusters=NU
 print(f"\n Running SOM clustering with {NUM_CLUSTERS} clusters")
 # (1D SOM)
 som_labels, df_som_analysis = run_som(df_final, df_clean, grid_x=NUM_CLUSTERS, grid_y=1)
-
+"""
 print("\n Generating Dimensionality Reduction visualisations")
 plot_pca_clusters(df_final, som_labels)
         
@@ -464,7 +660,144 @@ models_to_compare = {
 compare_clustering_models(df_final, models_to_compare)
 
 print("\n Generating Dimensionality Reduction visualisations")
-plot_pca_clusters(df_final, som_labels)
+plot_pca_clusters(df_final, som_labels)"""
 
 print(f"\n Building Recommendation System based on {NUM_CLUSTERS} SOM clusters")
 generate_recommendations(basket_file, df_som_analysis, n_clusters=NUM_CLUSTERS)
+
+#generate_business_report(df_som_analysis, cluster_col='cluster_som')
+#investigate_cluster_1_paradox(df_som_analysis)
+analyze_profit_vs_stability(df_som_analysis)
+
+
+"""
+============================================================
+ CUSTOMER BEHAVIOR & MARKETING STRATEGIES
+============================================================
+
+========================================
+ CLUSTER 0 - Breakfast Lovers
+========================================
+
+[ Customer Behavior Analysis ]
+ • Average Age: 58.3 years
+ • Kids at home: 3.14 (avg per customer)
+ • Typical Shopping Hour: 10:00
+ • Loyalty Card Usage: 68.2%
+ • Average Complaints: 0.95
+ • Distinct Stores Visited: 3.3
+
+[  Targeted Marketing Strategy ]
+ • Cross-sell Combo: 'Buy eggs and butter — get 20% off fresh bread'.
+ • Timing Strategy: Send breakfast recipes and promo codes via email at 9:00 (just before their typical shopping time).
+
+========================================
+ CLUSTER 1 - Youth / On-the-go
+========================================
+
+[ Customer Behavior Analysis ]
+ • Average Age: 60.3 years
+ • Kids at home: 0.90 (avg per customer)
+ • Typical Shopping Hour: 11:00
+ • Loyalty Card Usage: 73.1%
+ • Average Complaints: 0.88
+ • Distinct Stores Visited: 3.0
+
+[  Targeted Marketing Strategy ]
+ • Trigger Promo: Offer a free energy drink when adding any headphones to the cart online.
+ • Push Notifications: Send mobile app alerts for quick snacks at 11:00.
+ • Note: This cluster has very few strict association rules, indicating chaotic/spontaneous purchase behavior.
+
+========================================
+ CLUSTER 2 - Families with pets
+========================================
+
+[ Customer Behavior Analysis ]
+ • Average Age: 58.2 years
+ • Kids at home: 1.03 (avg per customer)
+ • Typical Shopping Hour: 12:00
+ • Loyalty Card Usage: 57.4%
+ • Average Complaints: 0.72
+ • Distinct Stores Visited: 3.5
+
+[  Targeted Marketing Strategy ]
+ • Bundle Offer: 'Family Basket' promo. Buy baby food + dog food, get a large pack of napkins with a 30% discount.
+ • Subscription Model: Send reminders to re-stock on diapers and dog food every 2-3 weeks.
+
+========================================
+ CLUSTER 3 - Healthy & Vegans 
+========================================
+
+[ Customer Behavior Analysis ]
+ • Average Age: 48.6 years
+ • Kids at home: 0.94 (avg per customer)
+ • Typical Shopping Hour: 12:00
+ • Loyalty Card Usage: 55.6%
+ • Average Complaints: 1.02
+ • Distinct Stores Visited: 3.5
+
+[  Targeted Marketing Strategy ]
+ • Targeted Discount: 20% off avocados when buying fresh asparagus and spinach.
+ • Communication: Send newsletters about fresh farm vegetable arrivals (do not push meat products).
+
+========================================
+ CLUSTER 4 - Tech & Athletes 
+========================================
+
+[ Customer Behavior Analysis ]
+ • Average Age: 57.2 years
+ • Kids at home: 0.27 (avg per customer)
+ • Typical Shopping Hour: 17:00
+ • Loyalty Card Usage: 48.4%
+ • Average Complaints: 1.09
+ • Distinct Stores Visited: 1.5
+
+[  Targeted Marketing Strategy ]
+ • Sports Bundle: 'Post-Workout' promo code (Shampoo + Deodorant + Protein bar).
+ • Upsell Strategy: When a high-ticket item (e.g., iPhone 10) is added to the cart, automatically offer a coupon for AirPods/Bluetooth headphones.
+
+ 
+ =======================================================================
+BUSINESS INSIGHT: THE CLUSTER 1 PARADOX (Tech Items vs. High Age)
+=======================================================================
+• Initial Hypothesis: Based purely on the shopping basket (AirPods, 
+  Bluetooth headphones, energy drinks), this cluster was assumed to be "Youth".
+  
+• Demographic Reality: The average age is ~60 years old. The distribution 
+  is normal (no bimodality), meaning these are genuinely older adults.
+
+• The Evidence: ~75% of these customers have teens or kids at home. 
+  Furthermore, lifetime spend shows huge isolated spikes in electronics 
+  (expensive one-time purchases) but low continuous spend on drinks.
+
+• Final Conclusion: These are NOT teenagers. They are parents and 
+  grandparents buying tech gifts for Gen Z.
+
+• Marketing Pivot: Shift the communication strategy from "on-the-go youth" 
+  messaging to "Gift Ideas for Teens" (e.g., Holidays, Back-to-School).
+=======================================================================
+
+=======================================================================
+EXECUTIVE SUMMARY: CUSTOMER PORTFOLIO MATRIX
+=======================================================================
+By mapping our 5 clusters on a Profitability vs. Stability matrix, 
+we successfully prioritized our marketing budget:
+
+1. THE STARS (Clusters 0 & 1):
+   - High revenue (~$34k-$37k) and the highest loyalty. 
+   - Strategy: Retain through VIP treatment and early access, NOT deep 
+     discounts, as they already buy at full price.
+
+2. THE CASH COWS (Cluster 2):
+   - Lower revenue but highly stable with the lowest complaint rate.
+   - Strategy: Focus on increasing Average Order Value (AOV) via 
+     product bundling and subscription models.
+
+3. THE LOW-MARGIN DEAL HUNTERS (Clusters 3 & 4):
+   - Highly promo-sensitive (up to 50% promo purchases), lowest loyalty 
+     card adoption (<50%), and highest complaint rates.
+   - Strategy: Minimize acquisition costs. Use automated marketing 
+     (e.g., flash sales) and avoid spending premium resources here.
+=======================================================================
+
+"""
