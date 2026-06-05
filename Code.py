@@ -670,10 +670,6 @@ analyze_profit_vs_stability(df_som_analysis)
 
 
 """
-============================================================
- CUSTOMER BEHAVIOR & MARKETING STRATEGIES
-============================================================
-
 ========================================
  CLUSTER 0 - Breakfast Lovers
 ========================================
@@ -754,49 +750,5 @@ analyze_profit_vs_stability(df_som_analysis)
 [  Targeted Marketing Strategy ]
  • Sports Bundle: 'Post-Workout' promo code (Shampoo + Deodorant + Protein bar).
  • Upsell Strategy: When a high-ticket item (e.g., iPhone 10) is added to the cart, automatically offer a coupon for AirPods/Bluetooth headphones.
-
- 
- =======================================================================
-BUSINESS INSIGHT: THE CLUSTER 1 PARADOX (Tech Items vs. High Age)
-=======================================================================
-• Initial Hypothesis: Based purely on the shopping basket (AirPods, 
-  Bluetooth headphones, energy drinks), this cluster was assumed to be "Youth".
-  
-• Demographic Reality: The average age is ~60 years old. The distribution 
-  is normal (no bimodality), meaning these are genuinely older adults.
-
-• The Evidence: ~75% of these customers have teens or kids at home. 
-  Furthermore, lifetime spend shows huge isolated spikes in electronics 
-  (expensive one-time purchases) but low continuous spend on drinks.
-
-• Final Conclusion: These are NOT teenagers. They are parents and 
-  grandparents buying tech gifts for Gen Z.
-
-• Marketing Pivot: Shift the communication strategy from "on-the-go youth" 
-  messaging to "Gift Ideas for Teens" (e.g., Holidays, Back-to-School).
-=======================================================================
-
-=======================================================================
-EXECUTIVE SUMMARY: CUSTOMER PORTFOLIO MATRIX
-=======================================================================
-By mapping our 5 clusters on a Profitability vs. Stability matrix, 
-we successfully prioritized our marketing budget:
-
-1. THE STARS (Clusters 0 & 1):
-   - High revenue (~$34k-$37k) and the highest loyalty. 
-   - Strategy: Retain through VIP treatment and early access, NOT deep 
-     discounts, as they already buy at full price.
-
-2. THE CASH COWS (Cluster 2):
-   - Lower revenue but highly stable with the lowest complaint rate.
-   - Strategy: Focus on increasing Average Order Value (AOV) via 
-     product bundling and subscription models.
-
-3. THE LOW-MARGIN DEAL HUNTERS (Clusters 3 & 4):
-   - Highly promo-sensitive (up to 50% promo purchases), lowest loyalty 
-     card adoption (<50%), and highest complaint rates.
-   - Strategy: Minimize acquisition costs. Use automated marketing 
-     (e.g., flash sales) and avoid spending premium resources here.
-=======================================================================
 
 """
