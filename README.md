@@ -13,7 +13,8 @@ To ensure the high-quality performance of clustering algorithms (which rely on d
 The search for the optimal number of clusters was conducted using the Elbow Method and Silhouette Score analysis, both indicating a global optimum at **k=5**.
 <img width="974" height="299" alt="Elbow method and silhouette score" src="https://github.com/user-attachments/assets/56ef8747-41de-4694-99fb-0d1cef814272" />
 
-* **Algorithm Selection:** Two fundamentally different models were trained and compared: a centroid-based model (K-Means) and a topological neural network (Self-Organizing Maps, 5x1 grid).
+* **Algorithm Selection:** Three different models were trained and compared: a centroid-based model (K-Means), a topological neural network (Self-Organizing Maps, 5x1 grid), and a connectivity-based model (Hierarchical / Agglomerative clustering). SOM was kept as the final segmentation model; hierarchical clustering was used as a benchmark only.
+* **Hierarchical Benchmark:** We compared `ward`, `complete` and `average` linkage (dendrograms computed on a 5,000-customer sample, with the chosen `ward` solution refit on the full dataset). `ward` produced the most balanced and cohesive clusters and agreed with the K-Means/SOM structure, confirming that the segmentation is stable across very different algorithms.
 * **Quality Metrics:** The results were evaluated using internal metrics: *Silhouette Score*, *Davies-Bouldin Index*, and *Calinski-Harabasz Index*. SOM demonstrated high stability and excellent business interpretability of the formed segments.
 * **Dimensionality Reduction:** To visually confirm cluster separability in a high-dimensional space (20+ features), we applied PCA and UMAP (using `n_neighbors` of 15 and 50 for local and global topological analysis, respectively).
  <img width="910" height="574" alt="PCA and UMAP projection of SOM clusters" src="https://github.com/user-attachments/assets/95d20ca6-8dfb-42a0-8bcc-6aa4175581ba" /> 
