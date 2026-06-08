@@ -61,6 +61,7 @@ Integrating the results of SOM and Apriori allowed us to identify 5 distinct beh
 * *Profile:* Average age 57.2. Peak shopping hour: 17:00 (drop by after work). Visited stores: **1.5** (dislike browsing offline). Loyalty: **48.4%** (lowest). Complaints: **1.09** (highest).
 * *Finance & Stability:* LTV = **$24,026**. Stability Index = **57.4** (highest risk). Promo purchases: 27%.
 * *Basket (1375 rules):* iPhone 10 $\rightarrow$ AirPods (Lift = 3.34); Protein bar + deodorant $\rightarrow$ shampoo (Lift = 1.74).
+<img width="688" height="609" alt="Снимок экрана 2026-06-08 в 16 13 03" src="https://github.com/user-attachments/assets/5d9785f3-0b05-425e-ab14-3a69feae434f" />
 
 
 
