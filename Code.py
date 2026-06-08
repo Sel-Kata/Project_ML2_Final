@@ -6,9 +6,10 @@ import seaborn as sns
 from datetime import datetime
 from sklearn.preprocessing import StandardScaler
 from sklearn.impute import KNNImputer
-from sklearn.cluster import KMeans
+from sklearn.cluster import KMeans, AgglomerativeClustering
 from sklearn.metrics import silhouette_score
 from sklearn.decomposition import PCA
+from scipy.cluster.hierarchy import dendrogram, linkage
 from minisom import MiniSom
 import umap
 import ast
@@ -250,6 +251,87 @@ def run_som(df_final, df_clean, grid_x, grid_y=1):
 
     return som_labels, df_som_analysis
 
+def run_hierarchical(df_final, df_clean, n_clusters, linkage_methods=('ward', 'complete', 'average'),
+                     sample_size=5000, random_state=42):
+    """
+    Hierarchical (Agglomerative) clustering used as a benchmark against K-Means and SOM.
+    It is not the final model; we keep it to compare linkage strategies and to check the
+    cluster structure with a dendrogram.
+
+    Notes:
+    - Agglomerative clustering is O(n^2) in memory/time and a dendrogram with 33k leaves is
+      unreadable, so the linkage comparison and the dendrogram run on a random sample.
+    - To compare fairly with K-Means/SOM, the chosen 'ward' solution is also fitted on the
+      full dataset and its labels are returned for the comparison table.
+
+    Returns:
+        ward_labels_full : ward labels for every customer (full dataset)
+        df_hier_analysis : df_clean with the added 'cluster_hier' column
+        linkage_results  : internal metrics per linkage method (on the sample)
+    """
+    print("\n--- Hierarchical Clustering (benchmark) ---")
+
+    # Reproducible sub-sample for the dendrogram and linkage comparison
+    n_samples = df_final.shape[0]
+    size = min(sample_size, n_samples)
+    sample_idx = np.random.RandomState(random_state).choice(n_samples, size=size, replace=False)
+    sample_matrix = df_final.values[sample_idx]
+    print(f"Comparing linkage methods on a random sample of {size} customers.")
+
+    # 1) Compare linkage configurations on the sample (Silhouette / Calinski-Harabasz / Davies-Bouldin)
+    linkage_results = []
+    for lk in linkage_methods:
+        labels = AgglomerativeClustering(n_clusters=n_clusters, linkage=lk).fit_predict(sample_matrix)
+        linkage_results.append({
+            'Linkage': lk,
+            'Silhouette (higher=better)': silhouette_score(sample_matrix, labels),
+            'Calinski-Harabasz (higher=better)': calinski_harabasz_score(sample_matrix, labels),
+            'Davies-Bouldin (lower=better)': davies_bouldin_score(sample_matrix, labels)
+        })
+    linkage_results = pd.DataFrame(linkage_results)
+    print("\n[ Linkage Configuration Comparison ]")
+    print(linkage_results.round(4).to_string(index=False))
+
+    # 2) Dendrograms (truncated to the last 20 merges so they stay readable)
+    sns.set_theme(style="whitegrid")
+    fig, axes = plt.subplots(1, len(linkage_methods), figsize=(6 * len(linkage_methods), 5))
+    axes = np.atleast_1d(axes)
+    for ax, lk in zip(axes, linkage_methods):
+        Z = linkage(sample_matrix, method=lk)
+        dendrogram(Z, truncate_mode='lastp', p=20, ax=ax, color_threshold=0,
+                   above_threshold_color='steelblue')
+        ax.set_title(f"Dendrogram ('{lk}' linkage)", fontsize=13, fontweight='bold')
+        ax.set_xlabel('Merged cluster (truncated)')
+        ax.set_ylabel('Distance')
+    plt.tight_layout()
+    plt.show()
+
+    # 3) Fit the chosen linkage ('ward') on the FULL dataset for the model comparison
+    ward_labels_full = AgglomerativeClustering(n_clusters=n_clusters, linkage='ward').fit_predict(df_final)
+
+    df_hier_analysis = df_clean.copy()
+    df_hier_analysis['cluster_hier'] = ward_labels_full
+
+    print(f"\nCustomer distribution across Hierarchical (Ward) clusters (k={n_clusters}):")
+    print(df_hier_analysis['cluster_hier'].value_counts().sort_index())
+
+    cols_to_analyze = [
+        'age', 'kids_home', 'teens_home', 'number_complaints', 'typical_hour',
+        'distinct_stores_visited', 'lifetime_spend_groceries',
+        'lifetime_spend_electronics', 'lifetime_spend_vegetables',
+        'lifetime_spend_nonalcohol_drinks', 'lifetime_spend_alcohol_drinks',
+        'lifetime_spend_meat', 'lifetime_spend_fish', 'lifetime_spend_hygiene',
+        'lifetime_spend_videogames', 'lifetime_spend_petfood',
+        'lifetime_total_distinct_products', 'percentage_of_products_bought_promotion',
+        'has_loyalty_card', 'cluster_hier'
+    ]
+    valid_cols = [col for col in cols_to_analyze if col in df_hier_analysis.columns]
+    hier_profiles = df_hier_analysis[valid_cols].groupby('cluster_hier').mean().T.round(2)
+    print("\n--- Hierarchical (Ward) Cluster Profiles ---")
+    print(hier_profiles)
+
+    return ward_labels_full, df_hier_analysis, linkage_results
+
 # 4. Dimensionality Reduction and Visualizations
 def plot_pca_clusters(df_final, som_labels):
     fig, axes = plt.subplots(1, 2, figsize=(18, 7))
@@ -344,6 +426,102 @@ def compare_clustering_models(df_final, labels_dict):
     axes[1].set_title('Calinski-Harabasz Index \n(Higher = Better Density)', fontsize=14, fontweight='bold')
     axes[1].set_ylabel('Score')
     
+    plt.tight_layout()
+    plt.show()
+
+def plot_cluster_radar(df_analysis, cluster_col='cluster_som'):
+    """
+    Radar chart comparing the spend profile of each cluster.
+    Each spend category is min-max normalized across clusters so the axes are comparable
+    and show the relative category preference.
+    """
+    spend_cols = [c for c in df_analysis.columns if c.startswith('lifetime_spend_')]
+    profiles = df_analysis.groupby(cluster_col)[spend_cols].mean()
+
+    # Min-max normalize each category across clusters -> [0, 1]
+    norm = (profiles - profiles.min()) / (profiles.max() - profiles.min()).replace(0, 1)
+
+    labels = [c.replace('lifetime_spend_', '') for c in spend_cols]
+    angles = np.linspace(0, 2 * np.pi, len(labels), endpoint=False).tolist()
+    angles += angles[:1]  # close the loop
+
+    fig, ax = plt.subplots(figsize=(9, 9), subplot_kw=dict(polar=True))
+    palette = sns.color_palette('tab10', n_colors=len(norm.index))
+
+    for color, (cluster_id, row) in zip(palette, norm.iterrows()):
+        values = row.tolist()
+        values += values[:1]
+        ax.plot(angles, values, linewidth=2, label=f'Cluster {cluster_id}', color=color)
+        ax.fill(angles, values, alpha=0.10, color=color)
+
+    ax.set_xticks(angles[:-1])
+    ax.set_xticklabels(labels, fontsize=10)
+    ax.set_yticklabels([])
+    ax.set_title('Cluster Spend Profile (normalized radar)', fontsize=16, fontweight='bold', pad=20)
+    ax.legend(loc='upper right', bbox_to_anchor=(1.25, 1.10), title='Segment')
+    plt.tight_layout()
+    plt.show()
+
+def plot_spend_heatmap(df_analysis, cluster_col='cluster_som'):
+    """
+    Heatmap of average lifetime spend per category and cluster.
+    Color is normalized per category (column-wise) to highlight which segment over/under-spends
+    on each product family, while the annotations keep the real average amounts ($).
+    """
+    spend_cols = [c for c in df_analysis.columns if c.startswith('lifetime_spend_')]
+    profiles = df_analysis.groupby(cluster_col)[spend_cols].mean()
+    profiles.columns = [c.replace('lifetime_spend_', '') for c in spend_cols]
+
+    col_norm = (profiles - profiles.min()) / (profiles.max() - profiles.min()).replace(0, 1)
+
+    plt.figure(figsize=(14, 6))
+    sns.heatmap(col_norm, annot=profiles.round(0).astype(int), fmt='d', cmap='YlGnBu',
+                cbar_kws={'label': 'Relative spend (per category)'}, linewidths=0.5)
+    plt.title('Average Lifetime Spend by Cluster and Category ($)', fontsize=15, fontweight='bold')
+    plt.xlabel('Product Category')
+    plt.ylabel('Cluster')
+    plt.tight_layout()
+    plt.show()
+
+def plot_demographics_comparison(df_analysis, cluster_col='cluster_som'):
+    """
+    Small-multiple bar charts comparing key demographic / behavioral metrics across clusters.
+    Each metric gets its own subplot because their scales differ (age vs. kids vs. loyalty %).
+    """
+    metrics = {
+        'age': 'Average Age',
+        'kids_home': 'Kids at Home',
+        'teens_home': 'Teens at Home',
+        'number_complaints': 'Complaints',
+        'distinct_stores_visited': 'Distinct Stores',
+        'percentage_of_products_bought_promotion': 'Promo Purchases (%)',
+    }
+    if 'has_loyalty_card' in df_analysis.columns:
+        metrics['has_loyalty_card'] = 'Loyalty Card (%)'
+
+    valid = {k: v for k, v in metrics.items() if k in df_analysis.columns}
+    summary = df_analysis.groupby(cluster_col)[list(valid.keys())].mean()
+    if 'has_loyalty_card' in summary.columns:
+        summary['has_loyalty_card'] = summary['has_loyalty_card'] * 100
+
+    sns.set_theme(style="whitegrid")
+    n_cols = 3
+    n_rows = math.ceil(len(valid) / n_cols)
+    fig, axes = plt.subplots(n_rows, n_cols, figsize=(6 * n_cols, 4 * n_rows))
+    axes = np.atleast_1d(axes).flatten()
+    palette = sns.color_palette('tab10', n_colors=len(summary.index))
+
+    for ax, (col, title) in zip(axes, valid.items()):
+        sns.barplot(x=summary.index, y=summary[col], hue=summary.index, ax=ax,
+                    palette=palette, legend=False)
+        ax.set_title(title, fontsize=12, fontweight='bold')
+        ax.set_xlabel('Cluster')
+        ax.set_ylabel('')
+
+    for j in range(len(valid), len(axes)):
+        fig.delaxes(axes[j])
+
+    plt.suptitle('Demographic & Behavioral Profile by Cluster', fontsize=16, fontweight='bold')
     plt.tight_layout()
     plt.show()
 
@@ -444,7 +622,7 @@ def generate_business_report(df_analysis, cluster_col='cluster_som'):
         print("\n[  Targeted Marketing Strategy ]")
         
         if cluster_id == 0:
-            print(" • Cross-sell Combo: 'Buy eggs and butter — get 20% off fresh bread'.")
+            print(" • Cross-sell Combo: 'Buy eggs and butter, get 20% off fresh bread'.")
             print(f" • Timing Strategy: Send breakfast recipes and promo codes via email at {int(row['typical_hour'])-1}:00 (just before their typical shopping time).")
             
         elif cluster_id == 1:
@@ -599,6 +777,18 @@ def analyze_profit_vs_stability(df_analysis):
     plt.tight_layout()
     plt.show()
 
+def export_cluster_assignments(df_analysis, cluster_col='cluster_som', path='customer_cluster_assignments.csv'):
+    """
+    Deliverable required by the assignment: a CSV mapping every customer_id to its final cluster.
+    df_analysis keeps customer_id in its index (set during preprocessing), so no customer is lost.
+    """
+    out = df_analysis[[cluster_col]].copy()
+    out.index.name = 'customer_id'
+    out = out.rename(columns={cluster_col: 'cluster'})
+    out.to_csv(path)
+    print(f"\nSaved cluster assignments for {len(out)} customers to '{path}'")
+    return out
+
 
 
 
@@ -641,22 +831,33 @@ plot_umap_clusters(
         
 # UMAP - Global View (n_neighbors=50, min_dist=0.05, alpha=0.4, s=5)
 plot_umap_clusters(
-            df_final=df_final, 
-            som_labels=som_labels, 
-            n_neighbors=50, 
-            min_dist=0.05, 
-            alpha=0.4, 
-            s=5, 
+            df_final=df_final,
+            som_labels=som_labels,
+            n_neighbors=50,
+            min_dist=0.05,
+            alpha=0.4,
+            s=5,
             title='SOM Clusters 2D Projection (UMAP - Global View)'
         )
 
+# Hierarchical clustering benchmark: compares ward/complete/average linkage and draws
+# dendrograms. Used ONLY for model comparison, NOT for the final segmentation (SOM stays final).
+hier_labels, df_hier_analysis, linkage_results = run_hierarchical(
+            df_final, df_clean, n_clusters=NUM_CLUSTERS
+        )
 
 print("\nComparing Clustering Models")
 models_to_compare = {
         'K-Means': kmeans_labels,
-        'SOM': som_labels
+        'SOM': som_labels,
+        'Hierarchical (Ward)': hier_labels
     }
 compare_clustering_models(df_final, models_to_compare)
+
+# Cluster-profile visualisations for the final SOM segmentation
+plot_cluster_radar(df_som_analysis, cluster_col='cluster_som')
+plot_spend_heatmap(df_som_analysis, cluster_col='cluster_som')
+plot_demographics_comparison(df_som_analysis, cluster_col='cluster_som')
 
 print("\n Generating Dimensionality Reduction visualisations")
 plot_pca_clusters(df_final, som_labels)"""
@@ -667,6 +868,9 @@ generate_recommendations(basket_file, df_som_analysis, n_clusters=NUM_CLUSTERS)
 #generate_business_report(df_som_analysis, cluster_col='cluster_som')
 #investigate_cluster_1_paradox(df_som_analysis)
 analyze_profit_vs_stability(df_som_analysis)
+
+# Required deliverable: a CSV mapping every customer_id to its final (SOM) cluster
+export_cluster_assignments(df_som_analysis, cluster_col='cluster_som')
 
 
 """
@@ -683,7 +887,7 @@ analyze_profit_vs_stability(df_som_analysis)
  • Distinct Stores Visited: 3.3
 
 [  Targeted Marketing Strategy ]
- • Cross-sell Combo: 'Buy eggs and butter — get 20% off fresh bread'.
+ • Cross-sell Combo: 'Buy eggs and butter, get 20% off fresh bread'.
  • Timing Strategy: Send breakfast recipes and promo codes via email at 9:00 (just before their typical shopping time).
 
 ========================================

@@ -11,12 +11,12 @@ To ensure the high-quality performance of clustering algorithms (which rely on d
 ## 2. Clustering Models & Quality Evaluation
 
 The search for the optimal number of clusters was conducted using the Elbow Method and Silhouette Score analysis, both indicating a global optimum at **k=5**.
-<img width="974" height="299" alt="Снимок экрана 2026-06-05 в 14 39 12" src="https://github.com/user-attachments/assets/56ef8747-41de-4694-99fb-0d1cef814272" />
+<img width="974" height="299" alt="Elbow method and silhouette score" src="https://github.com/user-attachments/assets/56ef8747-41de-4694-99fb-0d1cef814272" />
 
-* **Algorithm Selection:** Two fundamentally different models were trained and compared—a centroid-based model (K-Means) and a topological neural network (Self-Organizing Maps, 5x1 grid).
+* **Algorithm Selection:** Two fundamentally different models were trained and compared: a centroid-based model (K-Means) and a topological neural network (Self-Organizing Maps, 5x1 grid).
 * **Quality Metrics:** The results were evaluated using internal metrics: *Silhouette Score*, *Davies-Bouldin Index*, and *Calinski-Harabasz Index*. SOM demonstrated high stability and excellent business interpretability of the formed segments.
 * **Dimensionality Reduction:** To visually confirm cluster separability in a high-dimensional space (20+ features), we applied PCA and UMAP (using `n_neighbors` of 15 and 50 for local and global topological analysis, respectively).
- <img width="910" height="574" alt="Снимок экрана 2026-06-04 в 16 42 05" src="https://github.com/user-attachments/assets/95d20ca6-8dfb-42a0-8bcc-6aa4175581ba" /> 
+ <img width="910" height="574" alt="PCA and UMAP projection of SOM clusters" src="https://github.com/user-attachments/assets/95d20ca6-8dfb-42a0-8bcc-6aa4175581ba" /> 
 
 
 ## 3. Market Basket Analysis (Recommendation System)
@@ -80,7 +80,7 @@ To optimize retention budgets, we constructed a synthetic metric, `Stability Sco
 * **Stars (Clusters 0 and 1):** Highest LTV (>$34k) and maximum stability. Highly independent of promo actions.
 * **Cash Cows (Cluster 2):** Extremely stable, moderate LTV ($17k). Optimal for Upsell strategies.
 * **At-Risk / Deal Hunters (Clusters 3 and 4):** Low stability, high share of complaints and promo-driven purchases. Require minimization of servicing costs.
-  <img width="988" height="763" alt="Снимок экрана 2026-06-04 в 17 49 53" src="https://github.com/user-attachments/assets/2ca43edc-630e-4f16-a3a7-3cd2321d82e5" />
+  <img width="988" height="763" alt="Customer portfolio matrix" src="https://github.com/user-attachments/assets/2ca43edc-630e-4f16-a3a7-3cd2321d82e5" />
 
 
 ---
@@ -89,8 +89,8 @@ To optimize retention budgets, we constructed a synthetic metric, `Stability Sco
 
 * **Cluster 0 (Stars / Breakfasts):** Implement Cross-sell combos ("Eggs + Butter = 20% off Bread"). Automate email newsletters at 09:00 (one hour before their transaction peak).
 * **Cluster 1 (Stars / Gifts):** Launch targeted "Holiday Tech Gifts" campaigns. Eliminate direct monetary discounts in favor of Value-Added Services (VIP treatment, product bundling with energy drinks).
-* **Cluster 2 (Cash Cows):** Transition to a subscription model—automated reminders to restock baby food and dog food every 3 weeks with a bonus for auto-pay.
+* **Cluster 2 (Cash Cows):** Transition to a subscription model, with automated reminders to restock baby food and dog food every 3 weeks with a bonus for auto-pay.
 * **Cluster 3 (Deal Hunters / Vegans):** Given their low brand loyalty and high price elasticity, deep discounts (e.g., 20% off avocados) should be granted **strictly** in exchange for registering in the loyalty app (Acquisition strategy).
-* **Cluster 4 (At-Risk / Tech):** Set up an automated e-commerce trigger: a coupon for AirPods when a smartphone is added to the cart. In response to their high complaint rate, implement an automated Retention strategy—sending apology promo codes for a "Sports Bundle" following negative feedback.
+* **Cluster 4 (At-Risk / Tech):** Set up an automated e-commerce trigger: a coupon for AirPods when a smartphone is added to the cart. In response to their high complaint rate, implement an automated Retention strategy that sends apology promo codes for a "Sports Bundle" following negative feedback.
 
 **Next Steps:** Launch A/B testing of the proposed strategies.
