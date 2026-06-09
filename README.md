@@ -1,4 +1,4 @@
-# Report: Customer Segmentation and Marketing Strategy
+# Report: Customer Segmentation and Marketing Strategy. Group 20
 
 ## 1. Data Preprocessing & Feature Engineering
 
