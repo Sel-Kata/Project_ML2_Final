@@ -1,5 +1,9 @@
 # Report: Customer Segmentation and Marketing Strategy. Group 20
 
+**Authors:** Vitalii Hvozd (20240647), Tymur Novikov (20240649), Ekaterina Selikhovkina (20231788)
+
+**Repository:** https://github.com/Sel-Kata/Project_ML2_Final
+
 ## 1. Data Preprocessing & Feature Engineering
 
 To ensure the high-quality performance of clustering algorithms (which rely on distance calculations), the raw data underwent a rigorous transformation and cleaning stage:
